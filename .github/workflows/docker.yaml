@@ -29,117 +29,129 @@ jobs:
     - name: Maximize build space
       uses: easimon/maximize-build-space@master
       with:
-        root-reserve-mb: 2048 # 如果根分区仍然很满，可以尝试增加这个值
+
+        root-reserve-mb: 2048
         swap-size-mb: 128
         remove-dotnet: 'true'
         remove-haskell: 'true'
         # 如果空间还是不够用，可以把以下开启，清理出更多空间
-        remove-android: 'true'   # <-- 建议取消注释
-        remove-codeql: 'true'    # <-- 建议取消注释
-        # 也可以考虑移除其他已知的大型预装工具，如果不需要的话
-        # 例如: remove-swift: 'true', remove-ruby: 'true'
-        # 请查阅 easimon/maximize-build-space action 的文档了解所有可用选项
-        build-mount-path: '/var/lib/docker/' # 这个配置很好
+        remove-android: 'true'
+        remove-codeql: 'true'
+        build-mount-path: '/var/lib/docker/'
 
-    # ... (Restart docker, Free up disk space complete, Checkout Code, Docker Setup Buildx 步骤保持不变) ...
+    - name: Restart docker
+      run: sudo service docker restart
+
+    - name: Free up disk space complete
+      run: |
+        echo "Free up disk space complete"
+        echo "=============================================================================="
+        df -hT
+        echo "=============================================================================="
+
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Docker Setup Buildx
+      uses: docker/setup-buildx-action@v3
 
     - name: Build and push image Aliyun
       run: |
-        set -e # 如果任何命令失败，立即退出脚本
-
         docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
-        
-        # 数据预处理,判断镜像是否重名 (这部分保持不变)
+        # 数据预处理,判断镜像是否重名
         declare -A duplicate_images
         declare -A temp_map
         while IFS= read -r line || [ -n "$line" ]; do
+            # 忽略空行与注释
             [[ -z "$line" ]] && continue
             if echo "$line" | grep -q '^\s*#'; then
                 continue
             fi
+            
+            # 获取镜像的完整名称，例如kasmweb/nginx:1.25.3（命名空间/镜像名:版本号）
             image=$(echo "$line" | awk '{print $NF}')
+            # 将@sha256:等字符删除
             image="${image%%@*}"
-            # echo "image $image" # 可以酌情保留或移除调试信息
+            echo "image $image"
+            # 获取镜像名:版本号  例如nginx:1.25.3
             image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
-            # echo "image_name_tag $image_name_tag"
+            echo "image_name_tag $image_name_tag"
+            # 获取命名空间 例如kasmweb,  这里有种特殊情况 docker.io/nginx，把docker.io当成命名空间，也OK
             name_space=$(echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
-            # echo "name_space: $name_space"
+            echo "name_space: $name_space"
+            # 这里不要是空值影响判断
             name_space="${name_space}_"
+            # 获取镜像名例如nginx
             image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
-            # echo "image_name: $image_name"
+            echo "image_name: $image_name"
+            
+            # 如果镜像存在于数组中，则添加temp_map
             if [[ -n "${temp_map[$image_name]}" ]]; then
-                if [[ "${temp_map[$image_name]}" != $name_space  ]]; then
-                    # echo "duplicate image name: $image_name"
+                 # 如果temp_map已经存在镜像名，判断是不是同一命名空间
+                 if [[ "${temp_map[$image_name]}" != $name_space  ]]; then
+                    echo "duplicate image name: $image_name"
                     duplicate_images[$image_name]="true"
-                fi
+                 fi
             else
+                # 存镜像的命名空间
                 temp_map[$image_name]=$name_space
             fi       
         done < images.txt
         
-        # 正式处理每个镜像
+        
         while IFS= read -r line || [ -n "$line" ]; do
+            # 忽略空行与注释
             [[ -z "$line" ]] && continue
             if echo "$line" | grep -q '^\s*#'; then
                 continue
             fi
         
-            echo "Processing line: $line"
-            # 拉取镜像 (docker pull $line)
-            # ... (平台信息提取 platform, platform_prefix 等逻辑保持不变) ...
-            # ... (镜像名称解析 image, image_name_tag, name_space, image_name 等逻辑保持不变) ...
-            # ... (构造新镜像名称 new_image 逻辑保持不变) ...
-            # ... (docker tag $image $new_image 逻辑保持不变) ...
-
-            # --- 从这里开始是原有的拉取、打标签、推送逻辑 ---
             echo "docker pull $line"
             docker pull $line
             platform=$(echo "$line" | awk -F'--platform[ =]' '{if (NF>1) print $2}' | awk '{print $1}')
             echo "platform is $platform"
+            # 如果存在架构信息 将架构信息拼到镜像名称前面
             if [ -z "$platform" ]; then
                 platform_prefix=""
             else
                 platform_prefix="${platform//\//_}_"
             fi
             echo "platform_prefix is $platform_prefix"
+            # 获取镜像的完整名称，例如kasmweb/nginx:1.25.3（命名空间/镜像名:版本号）
             image=$(echo "$line" | awk '{print $NF}')
+
+            # 获取 镜像名:版本号  例如nginx:1.25.3
             image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
-            name_space_original=$(echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}') # 重命名以避免与之前的 name_space 混淆
+            # 获取命名空间 例如kasmweb  这里有种特殊情况 docker.io/nginx，把docker.io当成命名空间，也OK
+            name_space=$(echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
+            # 获取镜像名例  例如nginx
             image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+        
             name_space_prefix=""
+            # 如果镜像名重名
             if [[ -n "${duplicate_images[$image_name]}" ]]; then
-                if [[ -n "${name_space_original}" ]]; then # 使用 name_space_original
-                    name_space_prefix="${name_space_original}_"
-                fi
+               #如果命名空间非空，将命名空间加到前缀
+               if [[ -n "${name_space}" ]]; then
+                  name_space_prefix="${name_space}_"
+               fi
             fi
+            
+            # 将@sha256:等字符删除
             image_name_tag="${image_name_tag%%@*}"
             new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$platform_prefix$name_space_prefix$image_name_tag"
-            echo "docker tag \"$image\" \"$new_image\"" # 给镜像名称加上引号，防止特殊字符导致问题
-            docker tag "$image" "$new_image"
-            echo "docker push \"$new_image\""
-            docker push "$new_image"
-            # --- 推送结束 ---
-
-            echo "开始清理磁盘空间 (针对镜像: $image)"
+            echo "docker tag $image $new_image"
+            docker tag $image $new_image
+            echo "docker push $new_image"
+            docker push $new_image
+            echo "开始清理磁盘空间"
             echo "=============================================================================="
             df -hT
             echo "=============================================================================="
-            
-            echo "Removing specific images: $image and $new_image"
-            docker rmi "$image" || echo "警告: 移除 $image 失败或已被移除 (可能是正常的，例如不同平台指向同一摘要)。"
-            docker rmi "$new_image" || echo "警告: 移除 $new_image 失败或已被移除。"
-            
-            echo "修剪所有未使用的Docker镜像 (Pruning all unused Docker images)"
-            docker image prune -af # -a 删除所有未使用的镜像, -f 强制执行
-
-            # 如果需要更彻底的清理，可以取消下面 docker system prune 的注释
-            # 注意: system prune 会清理更多内容，包括构建缓存（本脚本不主要涉及）和未使用的网络等
-            # echo "修剪整个Docker系统 (Pruning entire Docker system)"
-            # docker system prune -af 
-
-            echo "磁盘空间清理完毕 (针对镜像: $image)"
+            docker rmi $image
+            docker rmi $new_image
+            echo "磁盘空间清理完毕"
             echo "=============================================================================="
             df -hT
-            echo "=============================================================================="       
+            echo "=============================================================================="     
             
         done < images.txt
