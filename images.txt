@@ -1,3 +1,4 @@
 postgres:17.5
 redis:8.0.0
 rabbitmq:4.1-management
+elasticsearch:9.0.1
