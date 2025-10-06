@@ -3,3 +3,4 @@ redis:8.0.0
 rabbitmq:4.1-management
 openjdk:21-oracle
 getmeili/meilisearch:v1.15.2
+nicolaka/netshoot:v0.13
