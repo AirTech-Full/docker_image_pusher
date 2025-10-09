@@ -9,3 +9,7 @@ hashicorp/http-echo:latest
 nginx:stable-alpine3.21-perl
 rancher/mirrored-pause:3.6
 rancher/local-path-provisioner:v0.0.31
+rancher/mirrored-metrics-server:v0.8.0
+rancher/mirrored-coredns-coredns:1.12.3
+rancher/klipper-helm:v0.9.8-build20250709
+rancher/mirrored-library-busybox:1.36.1
