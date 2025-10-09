@@ -6,3 +6,4 @@ getmeili/meilisearch:v1.15.2
 nicolaka/netshoot:v0.13
 networkstatic/iperf3:latest
 hashicorp/http-echo:latest
+nginx:stable-alpine3.21-perl
