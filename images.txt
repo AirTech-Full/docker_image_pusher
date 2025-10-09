@@ -8,3 +8,4 @@ networkstatic/iperf3:latest
 hashicorp/http-echo:latest
 nginx:stable-alpine3.21-perl
 rancher/mirrored-pause:3.6
+rancher/local-path-provisioner:v0.0.31
