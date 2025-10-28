@@ -14,3 +14,4 @@ rancher/mirrored-coredns-coredns:1.12.3
 rancher/klipper-helm:v0.9.8-build20250709
 rancher/mirrored-library-busybox:1.36.1
 busybox:stable-uclibc
+certbot/certbot:v5.1.0
