@@ -3,15 +3,6 @@ redis:8.0.0
 rabbitmq:4.1-management
 openjdk:21-oracle
 getmeili/meilisearch:v1.15.2
-nicolaka/netshoot:v0.13
-networkstatic/iperf3:latest
-hashicorp/http-echo:latest
 nginx:stable-alpine3.21-perl
-rancher/mirrored-pause:3.6
-rancher/local-path-provisioner:v0.0.31
-rancher/mirrored-metrics-server:v0.8.0
-rancher/mirrored-coredns-coredns:1.12.3
-rancher/klipper-helm:v0.9.8-build20250709
-rancher/mirrored-library-busybox:1.36.1
-busybox:stable-uclibc
-certbot/certbot:v5.1.0
+prom/prometheus:v3.7.3
+grafana/grafana:12.2
