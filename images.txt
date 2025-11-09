@@ -4,5 +4,6 @@ rabbitmq:4.1-management
 openjdk:21-oracle
 getmeili/meilisearch:v1.15.2
 nginx:stable-alpine3.21-perl
+certbot/certbot:v5.1.0
 prom/prometheus:v3.7.3
 grafana/grafana:12.2
