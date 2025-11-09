@@ -1,7 +1,7 @@
 postgres:17.5
 redis:8.0.0
 rabbitmq:4.1-management
-openjdk:21-oracle
+eclipse-temurin:21-jdk
 getmeili/meilisearch:v1.15.2
 nginx:stable-alpine3.21-perl
 certbot/certbot:v5.1.0
