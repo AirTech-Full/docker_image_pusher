@@ -9,4 +9,5 @@ prom/prometheus:v3.7.3
 grafana/grafana:12.2
 bitnami/postgres-exporter:latest
 oliver006/redis_exporter:latest
+kbudde/rabbitmq-exporter:1.0.0
 postgis/postgis:17-3.6-alpine
