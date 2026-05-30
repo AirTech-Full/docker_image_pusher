@@ -6,7 +6,6 @@ RUN set -eux; \
         clang19 \
         postgresql-dev \
         git; \
-    ln -s /usr/bin/clang-19 /usr/bin/clang-19-is-the-default; \
     git clone --depth 1 --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
     cd /tmp/pgvector; \
     make OPTFLAGS=""; \
