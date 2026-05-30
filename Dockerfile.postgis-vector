@@ -1,18 +1,16 @@
 FROM __SRC_IMAGE__
 RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        build-essential \
-        postgresql-server-dev-$(pg_config --version | grep -oP '\d+' | head -1) \
-        git \
-        ca-certificates; \
+    apk update; \
+    apk add --no-cache \
+        build-base \
+        clang \
+        postgresql-dev \
+        git; \
     git clone --depth 1 --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
     cd /tmp/pgvector; \
-    make; \
+    make OPTFLAGS=""; \
     make install; \
     cd /; \
     rm -rf /tmp/pgvector; \
-    apt-get purge -y build-essential git; \
-    apt-get autoremove -y; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/*
+    apk del build-base clang postgresql-dev git; \
+    rm -rf /var/cache/apk/*
