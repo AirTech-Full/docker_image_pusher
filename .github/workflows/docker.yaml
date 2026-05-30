@@ -239,28 +239,29 @@ jobs:
             echo "🐘 检测到 PostGIS 镜像: $src_image"
             echo "🔧 构建 postgis-vector:${tag}（PostGIS + pgvector）"
 
-            # 生成临时 Dockerfile
+            # 生成临时 Dockerfile（引用 heredoc 避免转义问题）
             TMPDIR=$(mktemp -d)
-            cat > "$TMPDIR/Dockerfile" <<DOCKERFILE_EOF
-FROM ${src_image}
-RUN set -eux; \\
-    apt-get update; \\
-    apt-get install -y --no-install-recommends \\
-        build-essential \\
-        postgresql-server-dev-\$(pg_config --version | grep -oP '\\d+' | head -1) \\
-        git \\
-        ca-certificates; \\
-    git clone --depth 1 --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector; \\
-    cd /tmp/pgvector; \\
-    make; \\
-    make install; \\
-    cd /; \\
-    rm -rf /tmp/pgvector; \\
-    apt-get purge -y build-essential git postgresql-server-dev-\$(pg_config --version | grep -oP '\\d+' | head -1); \\
-    apt-get autoremove -y; \\
-    apt-get clean; \\
+            cat > "$TMPDIR/Dockerfile" <<'DOCKERFILE_EOF'
+FROM __SRC_IMAGE__
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        postgresql-server-dev-$(pg_config --version | grep -oP '\d+' | head -1) \
+        git \
+        ca-certificates; \
+    git clone --depth 1 --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
+    cd /tmp/pgvector; \
+    make; \
+    make install; \
+    cd /; \
+    rm -rf /tmp/pgvector; \
+    apt-get purge -y build-essential git; \
+    apt-get autoremove -y; \
+    apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 DOCKERFILE_EOF
+            sed -i "s|__SRC_IMAGE__|${src_image}|g" "$TMPDIR/Dockerfile"
 
             echo "📄 Dockerfile:"
             cat "$TMPDIR/Dockerfile"
