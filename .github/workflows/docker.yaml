@@ -25,7 +25,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # 需要 git diff HEAD~1
+          fetch-depth: 2
 
       - name: Install skopeo
         run: |
@@ -42,7 +42,6 @@ jobs:
             grep -v '^\s*$\|^\s*#' images.txt > /tmp/to_sync.txt || true
           else
             echo "📌 增量同步模式（仅处理本次变更的镜像）"
-            # 获取本次 diff 中 images.txt 新增/修改的行
             git diff HEAD~1 -- images.txt | grep '^\+[^+]' | sed 's/^+//' | grep -v '^\s*$\|^\s*#' > /tmp/to_sync.txt || true
 
             if [ ! -s /tmp/to_sync.txt ]; then
@@ -60,7 +59,6 @@ jobs:
         if: steps.diff.outputs.skipped != 'true'
         run: |
           echo "$ALIYUN_REGISTRY_PASSWORD" | skopeo login -u "$ALIYUN_REGISTRY_USER" --password-stdin "$ALIYUN_REGISTRY"
-          # 同时登录 Docker Hub（匿名即可，skopeo 需要）
           skopeo login -u "$ALIYUN_REGISTRY_USER" -p "$ALIYUN_REGISTRY_PASSWORD" "$ALIYUN_REGISTRY"
 
       - name: Mirror Images
@@ -69,7 +67,6 @@ jobs:
         run: |
           set -o pipefail
 
-          # 预处理：镜像重名检测
           declare -A duplicate_images
           declare -A temp_map
 
@@ -93,7 +90,6 @@ jobs:
             fi
           done < /tmp/to_sync.txt
 
-          # 核心同步循环
           total=0
           success=0
           failed=0
@@ -105,8 +101,6 @@ jobs:
 
             total=$((total + 1))
 
-            # ---------- 解析 ----------
-            # 提取 --platform（如果有）
             platform=$(echo "$line" | grep -oP '(?<=--platform[= ])\S+' || echo "")
             if [ -n "$platform" ]; then
               platform_prefix="${platform//\//_}_"
@@ -120,13 +114,11 @@ jobs:
             name_space=$(echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
             image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
 
-            # 重名前缀
             name_space_prefix=""
             if [[ -n "${duplicate_images[$image_name]}" && -n "$name_space" ]]; then
               name_space_prefix="${name_space}_"
             fi
 
-            # 补全官方镜像路径
             if [[ "$image" != */* ]]; then
               src_image="docker.io/library/$image"
             elif [[ "$image" != *.*/* && "$image" != *:*/* ]]; then
@@ -141,16 +133,13 @@ jobs:
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "[$total] $src_image → $target"
 
-            # ---------- skopeo copy with retry ----------
             attempt=1
             max_attempts=3
             copied=false
 
             while [ $attempt -le $max_attempts ]; do
               echo "  尝试 $attempt/$max_attempts ..."
-              if skopeo copy --preserve-digests \
-                   "docker://$src_image" \
-                   "docker://$target" 2>&1; then
+              if skopeo copy --preserve-digests "docker://$src_image" "docker://$target" 2>&1; then
                 echo "  ✅ 成功"
                 success=$((success + 1))
                 echo "| ✅ | \`$src_image\` | \`$target\` |" >> /tmp/results.md
@@ -173,7 +162,6 @@ jobs:
 
           done < /tmp/to_sync.txt
 
-          # 输出统计
           echo ""
           echo "════════════════════════════════════════════════════════"
           echo "  总计: $total  |  ✅ 成功: $success  |  ❌ 失败: $failed"
@@ -183,7 +171,6 @@ jobs:
           echo "success=$success" >> $GITHUB_OUTPUT
           echo "failed=$failed" >> $GITHUB_OUTPUT
 
-          # 保存同步列表，供 postgis-vector 步骤使用
           cp /tmp/to_sync.txt /tmp/synced_images.txt
 
           if [ $failed -gt 0 ]; then
@@ -207,23 +194,15 @@ jobs:
             image=$(echo "$line" | awk '{print $NF}')
             image="${image%%@*}"
 
-            # 只处理 postgis 镜像
             case "$image" in
-              *postgis*|*postgres*postgis*)
-                ;;
-              *)
-                continue
-                ;;
+              *postgis*|*postgres*postgis*) ;;
+              *) continue ;;
             esac
 
-            # 提取 tag
             image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
             tag="${image_name_tag#*:}"
-            if [ -z "$tag" ]; then
-              tag="latest"
-            fi
+            [ -z "$tag" ] && tag="latest"
 
-            # 源镜像（从 Docker Hub 拉取，不依赖刚推送的阿里云镜像）
             if [[ "$image" != */* ]]; then
               src_image="docker.io/library/$image"
             elif [[ "$image" != *.*/* && "$image" != *:*/* ]]; then
@@ -239,48 +218,22 @@ jobs:
             echo "🐘 检测到 PostGIS 镜像: $src_image"
             echo "🔧 构建 postgis-vector:${tag}（PostGIS + pgvector）"
 
-            # 生成临时 Dockerfile（引用 heredoc 避免转义问题）
-            TMPDIR=$(mktemp -d)
-            cat > "$TMPDIR/Dockerfile" <<'DOCKERFILE_EOF'
-FROM __SRC_IMAGE__
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        build-essential \
-        postgresql-server-dev-$(pg_config --version | grep -oP '\d+' | head -1) \
-        git \
-        ca-certificates; \
-    git clone --depth 1 --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
-    cd /tmp/pgvector; \
-    make; \
-    make install; \
-    cd /; \
-    rm -rf /tmp/pgvector; \
-    apt-get purge -y build-essential git; \
-    apt-get autoremove -y; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/*
-DOCKERFILE_EOF
-            sed -i "s|__SRC_IMAGE__|${src_image}|g" "$TMPDIR/Dockerfile"
+            cp Dockerfile.postgis-vector /tmp/Dockerfile.pgv
+            sed -i "s|__SRC_IMAGE__|${src_image}|g" /tmp/Dockerfile.pgv
 
             echo "📄 Dockerfile:"
-            cat "$TMPDIR/Dockerfile"
+            cat /tmp/Dockerfile.pgv
 
-            # 构建
             echo "🏗️  构建中..."
-            if docker build -t "$target_image" "$TMPDIR" 2>&1; then
+            if docker build -t "$target_image" -f /tmp/Dockerfile.pgv . 2>&1; then
               echo "✅ 构建成功"
             else
               echo "❌ 构建失败"
               pg_failed=$((pg_failed + 1))
               echo "| ❌ | \`postgis-vector:${tag}\` | 构建失败 |" >> /tmp/postgis_results.md
-              rm -rf "$TMPDIR"
               continue
             fi
 
-            rm -rf "$TMPDIR"
-
-            # 推送
             echo "📤 推送到阿里云..."
             echo "$ALIYUN_REGISTRY_PASSWORD" | docker login -u "$ALIYUN_REGISTRY_USER" --password-stdin "$ALIYUN_REGISTRY"
 
@@ -307,21 +260,16 @@ DOCKERFILE_EOF
             echo ""
             echo "| 状态 | 源镜像 | 目标镜像 |"
             echo "|------|--------|----------|"
-            if [ -f /tmp/results.md ]; then
-              cat /tmp/results.md
-            fi
+            cat /tmp/results.md 2>/dev/null || true
             echo ""
             echo "**总计:** ${{ steps.mirror.outputs.total || 0 }} | **✅ 成功:** ${{ steps.mirror.outputs.success || 0 }} | **❌ 失败:** ${{ steps.mirror.outputs.failed || 0 }}"
-
-            if [ "${{ steps.postgis_vector.outputs.pg_built || 0 }}" -gt 0 ] || [ "${{ steps.postgis_vector.outputs.pg_failed || 0 }}" -gt 0 ]; then
+            if [ -n "${{ steps.postgis_vector.outputs.pg_built || '' }}${{ steps.postgis_vector.outputs.pg_failed || '' }}" ]; then
               echo ""
               echo "## 🐘 postgis-vector 构建结果"
               echo ""
               echo "| 状态 | 镜像 | 目标 |"
               echo "|------|------|------|"
-              if [ -f /tmp/postgis_results.md ]; then
-                cat /tmp/postgis_results.md
-              fi
+              cat /tmp/postgis_results.md 2>/dev/null || true
               echo ""
               echo "**✅ 构建成功:** ${{ steps.postgis_vector.outputs.pg_built || 0 }} | **❌ 构建失败:** ${{ steps.postgis_vector.outputs.pg_failed || 0 }}"
             fi
