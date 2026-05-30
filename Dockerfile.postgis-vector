@@ -4,6 +4,7 @@ RUN set -eux; \
     apk add --no-cache \
         build-base \
         clang19 \
+        llvm19 \
         postgresql-dev \
         git; \
     git clone --depth 1 --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
@@ -12,5 +13,5 @@ RUN set -eux; \
     make install; \
     cd /; \
     rm -rf /tmp/pgvector; \
-    apk del build-base clang19 postgresql-dev git; \
+    apk del build-base clang19 llvm19 postgresql-dev git; \
     rm -rf /var/cache/apk/*
