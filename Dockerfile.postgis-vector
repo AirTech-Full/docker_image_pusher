@@ -3,14 +3,15 @@ RUN set -eux; \
     apk update; \
     apk add --no-cache \
         build-base \
-        clang \
+        clang19 \
         postgresql-dev \
         git; \
+    ln -s /usr/bin/clang-19 /usr/bin/clang-19-is-the-default; \
     git clone --depth 1 --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
     cd /tmp/pgvector; \
     make OPTFLAGS=""; \
     make install; \
     cd /; \
     rm -rf /tmp/pgvector; \
-    apk del build-base clang postgresql-dev git; \
+    apk del build-base clang19 postgresql-dev git; \
     rm -rf /var/cache/apk/*
