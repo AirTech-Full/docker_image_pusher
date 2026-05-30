@@ -183,9 +183,120 @@ jobs:
           echo "success=$success" >> $GITHUB_OUTPUT
           echo "failed=$failed" >> $GITHUB_OUTPUT
 
+          # 保存同步列表，供 postgis-vector 步骤使用
+          cp /tmp/to_sync.txt /tmp/synced_images.txt
+
           if [ $failed -gt 0 ]; then
             exit 1
           fi
+
+      - name: Build postgis-vector images
+        id: postgis_vector
+        if: steps.diff.outputs.skipped != 'true' && steps.mirror.outcome == 'success'
+        run: |
+          set -o pipefail
+
+          echo "" > /tmp/postgis_results.md
+          pg_built=0
+          pg_failed=0
+
+          while IFS= read -r line || [ -n "$line" ]; do
+            [[ -z "$line" ]] && continue
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+
+            image=$(echo "$line" | awk '{print $NF}')
+            image="${image%%@*}"
+
+            # 只处理 postgis 镜像
+            case "$image" in
+              *postgis*|*postgres*postgis*)
+                ;;
+              *)
+                continue
+                ;;
+            esac
+
+            # 提取 tag
+            image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
+            tag="${image_name_tag#*:}"
+            if [ -z "$tag" ]; then
+              tag="latest"
+            fi
+
+            # 源镜像（从 Docker Hub 拉取，不依赖刚推送的阿里云镜像）
+            if [[ "$image" != */* ]]; then
+              src_image="docker.io/library/$image"
+            elif [[ "$image" != *.*/* && "$image" != *:*/* ]]; then
+              src_image="docker.io/$image"
+            else
+              src_image="$image"
+            fi
+
+            target_image="${ALIYUN_REGISTRY}/${ALIYUN_NAME_SPACE}/postgis-vector:${tag}"
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🐘 检测到 PostGIS 镜像: $src_image"
+            echo "🔧 构建 postgis-vector:${tag}（PostGIS + pgvector）"
+
+            # 生成临时 Dockerfile
+            TMPDIR=$(mktemp -d)
+            cat > "$TMPDIR/Dockerfile" <<DOCKERFILE_EOF
+FROM ${src_image}
+RUN set -eux; \\
+    apt-get update; \\
+    apt-get install -y --no-install-recommends \\
+        build-essential \\
+        postgresql-server-dev-\$(pg_config --version | grep -oP '\\d+' | head -1) \\
+        git \\
+        ca-certificates; \\
+    git clone --depth 1 --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector; \\
+    cd /tmp/pgvector; \\
+    make; \\
+    make install; \\
+    cd /; \\
+    rm -rf /tmp/pgvector; \\
+    apt-get purge -y build-essential git postgresql-server-dev-\$(pg_config --version | grep -oP '\\d+' | head -1); \\
+    apt-get autoremove -y; \\
+    apt-get clean; \\
+    rm -rf /var/lib/apt/lists/*
+DOCKERFILE_EOF
+
+            echo "📄 Dockerfile:"
+            cat "$TMPDIR/Dockerfile"
+
+            # 构建
+            echo "🏗️  构建中..."
+            if docker build -t "$target_image" "$TMPDIR" 2>&1; then
+              echo "✅ 构建成功"
+            else
+              echo "❌ 构建失败"
+              pg_failed=$((pg_failed + 1))
+              echo "| ❌ | \`postgis-vector:${tag}\` | 构建失败 |" >> /tmp/postgis_results.md
+              rm -rf "$TMPDIR"
+              continue
+            fi
+
+            rm -rf "$TMPDIR"
+
+            # 推送
+            echo "📤 推送到阿里云..."
+            echo "$ALIYUN_REGISTRY_PASSWORD" | docker login -u "$ALIYUN_REGISTRY_USER" --password-stdin "$ALIYUN_REGISTRY"
+
+            if docker push "$target_image" 2>&1; then
+              echo "✅ 推送成功: $target_image"
+              pg_built=$((pg_built + 1))
+              echo "| ✅ | \`postgis-vector:${tag}\` | \`$target_image\` |" >> /tmp/postgis_results.md
+            else
+              echo "❌ 推送失败"
+              pg_failed=$((pg_failed + 1))
+              echo "| ❌ | \`postgis-vector:${tag}\` | 推送失败 |" >> /tmp/postgis_results.md
+            fi
+
+          done < /tmp/synced_images.txt
+
+          echo "pg_built=$pg_built" >> $GITHUB_OUTPUT
+          echo "pg_failed=$pg_failed" >> $GITHUB_OUTPUT
 
       - name: Summary
         if: always() && steps.diff.outputs.skipped != 'true'
@@ -200,4 +311,17 @@ jobs:
             fi
             echo ""
             echo "**总计:** ${{ steps.mirror.outputs.total || 0 }} | **✅ 成功:** ${{ steps.mirror.outputs.success || 0 }} | **❌ 失败:** ${{ steps.mirror.outputs.failed || 0 }}"
+
+            if [ "${{ steps.postgis_vector.outputs.pg_built || 0 }}" -gt 0 ] || [ "${{ steps.postgis_vector.outputs.pg_failed || 0 }}" -gt 0 ]; then
+              echo ""
+              echo "## 🐘 postgis-vector 构建结果"
+              echo ""
+              echo "| 状态 | 镜像 | 目标 |"
+              echo "|------|------|------|"
+              if [ -f /tmp/postgis_results.md ]; then
+                cat /tmp/postgis_results.md
+              fi
+              echo ""
+              echo "**✅ 构建成功:** ${{ steps.postgis_vector.outputs.pg_built || 0 }} | **❌ 构建失败:** ${{ steps.postgis_vector.outputs.pg_failed || 0 }}"
+            fi
           } >> $GITHUB_STEP_SUMMARY
