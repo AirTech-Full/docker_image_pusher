@@ -47,13 +47,33 @@ jobs:
             if [ ! -s /tmp/to_sync.txt ]; then
               echo "⚠️ images.txt 无变更，跳过同步"
               echo "skipped=true" >> $GITHUB_OUTPUT
-              exit 0
+            else
+              echo "skipped=false" >> $GITHUB_OUTPUT
             fi
           fi
 
-          echo "skipped=false" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ ! -s /tmp/to_sync.txt ]; then
+            :
+          else
+            echo "skipped=false" >> $GITHUB_OUTPUT
+          fi
+
           echo "📋 待同步镜像:"
-          cat /tmp/to_sync.txt
+          cat /tmp/to_sync.txt 2>/dev/null || echo "无"
+
+      - name: Check OpenCLIP changes
+        id: need_openclip
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "🔁 workflow_dispatch 手动触发，执行构建"
+            echo "build=true" >> $GITHUB_OUTPUT
+          elif git diff HEAD~1 -- Dockerfile.openclip app.py | grep -q '^diff'; then
+            echo "📐 Dockerfile.openclip 或 app.py 有变更，触发构建"
+            echo "build=true" >> $GITHUB_OUTPUT
+          else
+            echo "⏭️ OpenCLIP 文件无变更，跳过构建"
+            echo "build=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Login to Aliyun Registry
         if: steps.diff.outputs.skipped != 'true'
@@ -254,6 +274,8 @@ jobs:
 
       - name: Build OpenCLIP image
         id: openclip
+        if: steps.need_openclip.outputs.build == 'true'
+        timeout-minutes: 35
         run: |
           set -o pipefail
 
@@ -268,6 +290,9 @@ jobs:
           echo "$ALIYUN_REGISTRY_PASSWORD" | docker login -u "$ALIYUN_REGISTRY_USER" --password-stdin "$ALIYUN_REGISTRY"
 
           echo "🏗️  构建中 (CPU-only PyTorch + ViT-B/32)..."
+          echo "📦 清理 Docker 缓存释放磁盘空间..."
+          docker system prune -af 2>/dev/null || true
+
           if docker build -t "$target_image" -f Dockerfile.openclip . 2>&1; then
             echo "✅ OpenCLIP 镜像构建成功"
           else
@@ -287,7 +312,7 @@ jobs:
           fi
 
       - name: Summary
-        if: always() && steps.diff.outputs.skipped != 'true'
+        if: always()
         run: |
           {
             echo "## 📦 镜像同步结果"
@@ -307,10 +332,12 @@ jobs:
               echo ""
               echo "**✅ 构建成功:** ${{ steps.postgis_vector.outputs.pg_built || 0 }} | **❌ 构建失败:** ${{ steps.postgis_vector.outputs.pg_failed || 0 }}"
             fi
-            echo ""
-            echo "## 🎨 OpenCLIP 构建结果"
-            echo ""
-            echo "| 状态 | 镜像 | 目标 |"
-            echo "|------|------|------|"
-            cat /tmp/openclip_results.md 2>/dev/null || echo "| ⏭️ | openclip-vitb32 | 已跳过 |"
+            if [ "${{ steps.need_openclip.outputs.build }}" = "true" ] || [ -f /tmp/openclip_results.md ]; then
+              echo ""
+              echo "## 🎨 OpenCLIP 构建结果"
+              echo ""
+              echo "| 状态 | 镜像 | 目标 |"
+              echo "|------|------|------|"
+              cat /tmp/openclip_results.md 2>/dev/null || echo "| ⏭️ | openclip-vitb32 | 已跳过 |"
+            fi
           } >> $GITHUB_STEP_SUMMARY
