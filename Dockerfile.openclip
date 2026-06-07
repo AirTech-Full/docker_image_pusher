@@ -2,13 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# CPU-only PyTorch + open_clip + FastAPI
+# CPU-only PyTorch + open_clip + FastAPI (清 pip 缓存节省磁盘)
 RUN pip install --no-cache-dir \
     torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     open_clip_torch \
     fastapi \
     uvicorn \
-    pillow
+    pillow \
+    && rm -rf /root/.cache/pip
 
 COPY app.py .
 
