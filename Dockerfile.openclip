@@ -2,9 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# CPU-only PyTorch + open_clip + FastAPI (清 pip 缓存节省磁盘)
+# CPU-only PyTorch + open_clip + FastAPI
+# --extra-index-url 以官方 PyPI 为主源，PyTorch CPU wheel 为补充源
 RUN pip install --no-cache-dir \
-    torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+    torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu \
     open_clip_torch \
     fastapi \
     uvicorn \
