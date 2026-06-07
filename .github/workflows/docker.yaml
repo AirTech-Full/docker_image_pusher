@@ -252,6 +252,40 @@ jobs:
           echo "pg_built=$pg_built" >> $GITHUB_OUTPUT
           echo "pg_failed=$pg_failed" >> $GITHUB_OUTPUT
 
+      - name: Build OpenCLIP image
+        id: openclip
+        run: |
+          set -o pipefail
+
+          target_image="${ALIYUN_REGISTRY}/${ALIYUN_NAME_SPACE}/openclip-vitb32:latest"
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎨 构建 OpenCLIP ViT-B/32 图片向量服务"
+          echo "📐 目标: $target_image"
+          echo ""
+
+          echo "$ALIYUN_REGISTRY_PASSWORD" | docker login -u "$ALIYUN_REGISTRY_USER" --password-stdin "$ALIYUN_REGISTRY"
+
+          echo "🏗️  构建中 (CPU-only PyTorch + ViT-B/32)..."
+          if docker build -t "$target_image" -f Dockerfile.openclip . 2>&1; then
+            echo "✅ OpenCLIP 镜像构建成功"
+          else
+            echo "❌ OpenCLIP 镜像构建失败"
+            echo "| ❌ | \`openclip-vitb32:latest\` | 构建失败 |" >> /tmp/openclip_results.md
+            exit 1
+          fi
+
+          echo "📤 推送到阿里云..."
+          if docker push "$target_image" 2>&1; then
+            echo "✅ 推送成功: $target_image"
+            echo "| ✅ | \`openclip-vitb32:latest\` | \`$target_image\` |" >> /tmp/openclip_results.md
+          else
+            echo "❌ 推送失败"
+            echo "| ❌ | \`openclip-vitb32:latest\` | 推送失败 |" >> /tmp/openclip_results.md
+            exit 1
+          fi
+
       - name: Summary
         if: always() && steps.diff.outputs.skipped != 'true'
         run: |
@@ -273,4 +307,10 @@ jobs:
               echo ""
               echo "**✅ 构建成功:** ${{ steps.postgis_vector.outputs.pg_built || 0 }} | **❌ 构建失败:** ${{ steps.postgis_vector.outputs.pg_failed || 0 }}"
             fi
+            echo ""
+            echo "## 🎨 OpenCLIP 构建结果"
+            echo ""
+            echo "| 状态 | 镜像 | 目标 |"
+            echo "|------|------|------|"
+            cat /tmp/openclip_results.md 2>/dev/null || echo "| ⏭️ | openclip-vitb32 | 已跳过 |"
           } >> $GITHUB_STEP_SUMMARY
