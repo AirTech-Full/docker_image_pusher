@@ -13,3 +13,4 @@ kbudde/rabbitmq-exporter:1.0.0
 postgis/postgis:17-3.6-alpine
 ghcr.io/huggingface/text-embeddings-inference:cpu-latest
 ollama/ollama:0.30.6
+python:3.14.5
