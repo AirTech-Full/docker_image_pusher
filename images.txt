@@ -10,6 +10,7 @@ grafana/grafana:12.2
 bitnami/postgres-exporter:latest
 oliver006/redis_exporter:latest
 kbudde/rabbitmq-exporter:1.0.0
+nginx/nginx-prometheus-exporter:1.5.3
 postgis/postgis:17-3.6-alpine
 ghcr.io/huggingface/text-embeddings-inference:cpu-latest
 ollama/ollama:0.30.6
